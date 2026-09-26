@@ -69,7 +69,7 @@ def fetch_sandbox_data():
             options=TransactionsGetRequestOptions()
         )
         response = client.transactions_get(request)
-        return response['transactions']
+        return response.transactions
 
     except Exception as e:
         st.error(f"Failed to connect to Plaid Sandbox: {e}")
