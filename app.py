@@ -22,18 +22,20 @@ st.set_page_config(page_title="Family Budget Dashboard", page_icon="🏡", layou
 
 @st.cache_data(ttl=600)
 def fetch_sandbox_data():
+    client_id = st.secrets.get("PLAID_CLIENT_ID") or os.getenv("PLAID_CLIENT_ID")
+    secret_key = st.secrets.get("PLAID_SECRET") or os.getenv("PLAID_SECRET")
+
     configuration = plaid.Configuration(
         host=plaid.Environment.Sandbox,
         api_key={
-            'clientId': os.getenv('PLAID_CLIENT_ID'),
-            'secret': os.getenv('PLAID_SECRET'),
+            'clientId': client_id,
+            'secret': secret_key,
         }
     )
     api_client = plaid.ApiClient(configuration)
     client = plaid_api.PlaidApi(api_client)
 
     try:
-        # 🛠️ UPDATE THIS BLOCK TO WRAP 'transactions' IN THE Products TYPE:
         pt_request = SandboxPublicTokenCreateRequest(
             institution_id="ins_109508",
             initial_products=[Products('transactions')]  # <-- Changed from ["transactions"]
@@ -69,11 +71,9 @@ raw_transactions = fetch_sandbox_data()
 st.title("🏡 Our Family Budget")
 st.markdown("⚡ *Live Sandbox Data Stream*")
 
-# 1. Row of Visual Metric Cards
 st.subheader("Monthly Overview")
 col1, col2, col3 = st.columns(3)
 
-# Process some basic totals from the data for our cards
 total_spent = sum(t['amount'] for t in raw_transactions if t['amount'] > 0)
 grocery_spent = sum(t['amount'] for t in raw_transactions if 'Food and Drink' in t['category'])
 
@@ -83,11 +83,9 @@ col3.metric("Accounts Linked", "1 (Sandbox)")
 
 st.divider()
 
-# 2. Main Transaction Table
 st.subheader("Recent Transactions")
 
 if raw_transactions:
-    # Convert Plaid's data structure into a clean Pandas dataframe for display
     data_list = []
     for t in raw_transactions:
         data_list.append({
@@ -99,7 +97,6 @@ if raw_transactions:
 
     df = pd.DataFrame(data_list)
 
-    # Render a beautiful interactive table that handles search and sorting natively
     st.dataframe(df, use_container_width=True, hide_index=True)
 else:
     st.warning("No transactions found or Plaid configuration missing.")
