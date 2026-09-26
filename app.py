@@ -104,7 +104,7 @@ for env_name, budget_total in st.session_state.envelopes.items():
     # Render a progress bar for each active budget bucket
     progress_ratio = min(max(spent / budget_total, 0.0), 1.0) if budget_total > 0 else 0.0
 
-    col_label, col_bar = st.columns([1, 2])
+    col_label, col_bar = st.columns(2)
     with col_label:
         st.markdown(f"**{env_name}**  \n`${remaining:,.2f}` left of \${budget_total:,.2f}")
     with col_bar:
