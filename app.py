@@ -16,7 +16,7 @@ if os.path.exists('.env'):
 
 st.set_page_config(page_title="Our Family Envelopes", page_icon="🏡", layout="centered")
 
-# 🗄️ INITIALIZE LIVE ENVELOPE STATE
+# 🗄️ 1. INITIALIZE PERSISTENT APP MEMORY
 if 'envelopes' not in st.session_state:
     st.session_state.envelopes = {
         "Groceries": 400.00,
@@ -28,10 +28,17 @@ if 'envelopes' not in st.session_state:
 if 'transaction_mappings' not in st.session_state:
     st.session_state.transaction_mappings = {}
 
+# 🛡️ This memory bucket saves your transactions so buttons don't clear them
+if 'cached_ledger_data' not in st.session_state:
+    st.session_state.cached_ledger_data = None
 
-# 🛠️ PLAID DATA FETCHING & STABLE CACHING
-@st.cache_data(ttl=600)
-def fetch_sandbox_data():
+
+# 🛠️ 2. PLAID PIPELINE LOGIC (Runs once per refresh session)
+def fetch_sandbox_data_once():
+    # If we already have the bank data stored in memory, bypass the API completely!
+    if st.session_state.cached_ledger_data is not None:
+        return st.session_state.cached_ledger_data
+
     client_id = st.secrets.get("PLAID_CLIENT_ID") or os.getenv("PLAID_CLIENT_ID")
     secret_key = st.secrets.get("PLAID_SECRET") or os.getenv("PLAID_SECRET")
 
@@ -43,6 +50,7 @@ def fetch_sandbox_data():
     client = plaid_api.PlaidApi(api_client)
 
     try:
+        # Create Sandbox token
         pt_request = SandboxPublicTokenCreateRequest(
             institution_id="ins_109508",
             initial_products=[Products('transactions')]
@@ -50,10 +58,12 @@ def fetch_sandbox_data():
         pt_response = client.sandbox_public_token_create(pt_request)
         public_token = pt_response['public_token']
 
+        # Exchange public token
         exchange_request = ItemPublicTokenExchangeRequest(public_token=public_token)
         exchange_response = client.item_public_token_exchange(exchange_request)
         access_token = exchange_response['access_token']
 
+        # Give sandbox time to bake the history ledger
         time.sleep(5)
 
         start_date = date.today() - timedelta(days=30)
@@ -67,7 +77,7 @@ def fetch_sandbox_data():
         )
         response = client.transactions_get(request)
 
-        # 🛡️ THE STABILITY FIX: Convert complex Plaid data into plain Python data
+        # Unpack to native Python list of dictionaries
         stable_transactions = []
         for t in response.transactions:
             stable_transactions.append({
@@ -77,16 +87,20 @@ def fetch_sandbox_data():
                 "date": str(t.date)
             })
 
-        return stable_transactions  # Caches perfectly with no KeyErrors!
+        # Save into browser state vault before returning
+        st.session_state.cached_ledger_data = stable_transactions
+        return stable_transactions
 
     except Exception as e:
         st.error(f"Plaid Connection Error: {e}")
         return []
 
-raw_transactions = fetch_sandbox_data()
+
+# Fetch data via our smart network gatekeeper
+raw_transactions = fetch_sandbox_data_once()
 
 
-# 📑 HELPER LOGIC: ROUTE TRANSACTIONS TO ENVELOPES
+# 📑 3. HELPER LOGIC: ROUTE TRANSACTIONS TO ENVELOPES
 def auto_categorize(t_id, name, amount):
     if t_id in st.session_state.transaction_mappings:
         return st.session_state.transaction_mappings[t_id]
@@ -101,14 +115,14 @@ def auto_categorize(t_id, name, amount):
     return "Unassigned"
 
 
-# Calculate total spent in each envelope right now (Using normal dictionary lookups)
+# Calculate envelope totals natively
 envelope_spending = {name: 0.0 for name in st.session_state.envelopes}
 for t in raw_transactions:
     assigned_env = auto_categorize(t['transaction_id'], t['name'], t['amount'])
     if assigned_env in envelope_spending:
         envelope_spending[assigned_env] += t['amount']
 
-# 🎨 STREAMLIT USER INTERFACE
+# 🎨 4. STREAMLIT USER INTERFACE FRAMEWORK
 st.title("🏡 Our Family Envelopes")
 
 # --- SECTION 1: THE ENVELOPE LEDGER ---
@@ -142,7 +156,7 @@ with st.expander("Click here to add or delete custom envelopes"):
         if new_name and new_name not in st.session_state.envelopes:
             st.session_state.envelopes[new_name] = new_budget
             st.success(f"Created envelope: {new_name}!")
-            st.rerun()
+            st.those_changes_saved = st.rerun()
 
     st.divider()
 
@@ -151,9 +165,10 @@ with st.expander("Click here to add or delete custom envelopes"):
     env_to_remove = st.selectbox("Select envelope to destroy", removable_options)
 
     if st.button("Delete Selected Envelope", type="primary", use_container_width=True):
-        del st.session_state.envelopes[env_to_remove]
-        st.warning(f"Removed envelope: {env_to_remove}")
-        st.rerun()
+        if env_to_remove in st.session_state.envelopes:
+            del st.session_state.envelopes[env_to_remove]
+            st.warning(f"Removed envelope: {env_to_remove}")
+            st.rerun()
 
 st.divider()
 
@@ -187,4 +202,4 @@ if raw_transactions:
                 st.session_state.transaction_mappings[t_id] = chosen_env
                 st.rerun()
 else:
-    st.info("No transactions found.")
+    st.info("No transaction inputs processed.")
