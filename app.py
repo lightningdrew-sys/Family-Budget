@@ -12,7 +12,10 @@ from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCr
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.products import Products
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+if os.path.exists('.env'):
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+else:
+    load_dotenv()
 
 st.set_page_config(page_title="Family Budget Dashboard", page_icon="🏡", layout="centered")
 
