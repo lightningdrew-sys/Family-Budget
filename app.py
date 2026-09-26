@@ -19,6 +19,16 @@ else:
 
 st.set_page_config(page_title="Family Budget Dashboard", page_icon="🏡", layout="centered")
 
+if 'envelopes' not in st.session_state:
+    st.session_state.envelopes = {
+        "Groceries": 400.00,
+        "Dining out": 150,
+        "Auto": 100,
+        "Unassigned": 0.00
+    }
+
+    if 'transaction_mappings' not in st.session_state:
+        st.session_state.transaction_mappings = {}
 
 @st.cache_data(ttl=600)
 def fetch_sandbox_data():
@@ -68,36 +78,97 @@ def fetch_sandbox_data():
 
 raw_transactions = fetch_sandbox_data()
 
+def auto_categorize(t_id, name, amount):
+    if t_id in st.session_state.transaction_mappings:
+        return st.session_state.transaction_mappings[t_id]
+
+    name_lower = name.lower()
+    if "walmart" in name_lower or "braums" in name_lower:
+        return "Groceries"
+    elif "esurance" in name_lower:
+        return "auto"
+    elif "mcdonalds" in name_lower:
+        return "Dining out"
+    return "Unassigned"
+
+
 st.title("🏡 Our Family Budget")
-st.markdown("⚡ *Live Sandbox Data Stream*")
+st.markdown("Your Envelopes")
 
-st.subheader("Monthly Overview")
-col1, col2, col3 = st.columns(3)
+for env_name, budget_total in st.session_state.envelopes.items():
+    if env_name == "Unassigned":
+        continue
+    spent = envelope_spending.get(env_name, 0.0)
+    remaining = budget_total - spent
 
-total_spent = sum(t['amount'] for t in raw_transactions if t['amount'] > 0)
-grocery_spent = sum(t['amount'] for t in raw_transactions if 'Food and Drink' in t['category'])
+    # Render a progress bar for each active budget bucket
+    progress_ratio = min(max(spent / budget_total, 0.0), 1.0) if budget_total > 0 else 0.0
 
-col1.metric("Total Spent (30d)", f"${total_spent:,.2f}")
-col2.metric("Groceries & Dining", f"${grocery_spent:,.2f}", "On Track")
-col3.metric("Accounts Linked", "1 (Sandbox)")
+    col_label, col_bar = st.columns([1, 2])
+    with col_label:
+        st.markdown(f"**{env_name}**  \n`${remaining:,.2f}` left of \${budget_total:,.2f}")
+    with col_bar:
+        st.write("")  # Tiny spacer vertical alignment
+        st.progress(progress_ratio)
 
 st.divider()
 
-st.subheader("Recent Transactions")
+# --- SECTION 2: ADD / REMOVE ENVELOPES MANAGER ---
+st.subheader("🛠️ Manage Envelopes")
+with st.expander("Click here to add or delete custom envelopes"):
+    # Form layout to add a new option
+    st.markdown("### Add New Envelope")
+    new_name = st.text_input("Envelope Name (e.g., Rent, Subscriptions)")
+    new_budget = st.number_input("Monthly Budget Target (\$)", min_value=0.0, step=10.0)
+
+    if st.button("Add Envelope", use_container_width=True):
+        if new_name and new_name not in st.session_state.envelopes:
+            st.session_state.envelopes[new_name] = new_budget
+            st.success(f"Created envelope: {new_name}!")
+            st.rerun()
+
+    st.divider()
+
+    # Dropdown option to remove an existing envelope
+    st.markdown("### Remove Existing Envelope")
+    removable_options = [e for e in st.session_state.envelopes.keys() if e != "Unassigned"]
+    env_to_remove = st.selectbox("Select envelope to destroy", removable_options)
+
+    if st.button("Delete Selected Envelope", type="primary", use_container_width=True):
+        del st.session_state.envelopes[env_to_remove]
+        st.warning(f"Removed envelope: {env_to_remove}")
+        st.rerun()
+
+st.divider()
+
+# --- SECTION 3: TRANSACTION INTERACTIVE LEDGER ---
+st.subheader("💳 Transaction Breakdown")
 
 if raw_transactions:
-    data_list = []
     for t in raw_transactions:
-        data_list.append({
-            "Date": t['date'],
-            "Description": t['name'],
-            "Category": t['category'][0] if t['category'] else "Uncategorized",
-            "Amount": f"${t['amount']:,.2f}"
-        })
+        t_id = t['transaction_id']
+        current_env = auto_categorize(t_id, t['name'], t['amount'])
 
-    df = pd.DataFrame(data_list)
+        # Display each individual purchase row along with a responsive dropdown menu
+        col_tx, col_select = st.columns([2, 1])
+        with col_tx:
+            st.markdown(f"**{t['name']}**  \n*{t['date']}* | `${t['amount']:,.2f}`")
+        with col_select:
+            # Let you or your spouse manually fix categorization dynamically
+            all_envs = list(st.session_state.envelopes.keys())
+            default_index = all_envs.index(current_env) if current_env in all_envs else 0
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+            chosen_env = st.selectbox(
+                "Assign to:",
+                all_envs,
+                index=default_index,
+                key=f"select_{t_id}"
+            )
+
+            # Save reassignment directly to browser memory state
+            if chosen_env != current_env:
+                st.session_state.transaction_mappings[t_id] = chosen_env
+                st.rerun()
 else:
-    st.warning("No transactions found or Plaid configuration missing.")
+    st.info("No transaction inputs processed.")
 
