@@ -91,6 +91,15 @@ def auto_categorize(t_id, name, amount):
         return "Dining out"
     return "Unassigned"
 
+envelope_spending = {name: 0.0 for name in st.session_state.envelopes}
+for t in raw_transactions:
+    t_id = t.transaction_id
+    t_name = t.name
+    t_amount = t.amount
+
+    assigned_env = auto_categorize(t_id, t_name, t_amount)
+    if assigned_env in envelope_spending:
+        envelope_spending[assigned_env] += t_amount
 
 st.title("🏡 Our Family Budget")
 st.markdown("Your Envelopes")
@@ -146,13 +155,17 @@ st.subheader("💳 Transaction Breakdown")
 
 if raw_transactions:
     for t in raw_transactions:
-        t_id = t['transaction_id']
+        t_id = t.transaction_id
+        t_name = t.name
+        t_amount = t.amount
+        t_date = t.str(date)
+
         current_env = auto_categorize(t_id, t['name'], t['amount'])
 
         # Display each individual purchase row along with a responsive dropdown menu
         col_tx, col_select = st.columns([2, 1])
         with col_tx:
-            st.markdown(f"**{t['name']}**  \n*{t['date']}* | `${t['amount']:,.2f}`")
+            st.markdown(f"**{t_name}**  \n*{t_date}* | `${t_amount:,.2f}`")
         with col_select:
             # Let you or your spouse manually fix categorization dynamically
             all_envs = list(st.session_state.envelopes.keys())
